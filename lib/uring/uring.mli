@@ -25,11 +25,18 @@ type 'a job
 (** A handle for a submitted job, which can be used to cancel it.
     If an operation returns [None], this means that submission failed because the ring is full. *)
 
-val create : ?polling_timeout:int -> queue_depth:int -> unit -> 'a t
+val create : ?polling_timeout:int -> 
+    ?max_bounded_workers:int -> 
+    ?max_unbounded_workers:int -> 
+    queue_depth:int -> 
+    unit -> 
+    'a t
 (** [create ~queue_depth] will return a fresh Io_uring structure [t].
     Initially, [t] has no fixed buffer. Use {!set_fixed_buffer} if you want one.
     @param polling_timeout If given, use polling mode with the given idle timeout (in ms).
-                           This requires privileges. *)
+                           This requires privileges. 
+    @param max_bounded_workers Set a limit on the number of bounded workers that can be spawned.
+    @param max_unbounded_workers Set a limit on the number of unbounded workers that can be spawned. *)
 
 val queue_depth : 'a t -> int
 (** [queue_depth t] returns the total number of submission slots for the uring [t] *)

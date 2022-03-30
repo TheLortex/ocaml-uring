@@ -62,7 +62,7 @@ static struct custom_operations ring_ops = {
   custom_fixed_length_default
 };
 
-value ocaml_uring_setup(value entries, value polling_timeout) {
+value ocaml_uring_setup(value entries, value polling_timeout, value max_bounded_workers, value max_unbounded_workers) {
   CAMLparam1(entries);
   CAMLlocal1(v_uring);
   struct io_uring_params params;
@@ -82,7 +82,18 @@ value ocaml_uring_setup(value entries, value polling_timeout) {
   int status = io_uring_queue_init_params(Long_val(entries), ring, &params);
 
   if (status == 0) {
-    CAMLreturn(v_uring);
+
+    int workers[2] = {Int_val(max_bounded_workers), Int_val(max_unbounded_workers)};
+    status = io_uring_register_iowq_max_workers(ring, workers);
+    
+    if (status == 0) {
+      CAMLreturn(v_uring);
+    } else {
+      caml_stat_free(ring);
+      // The GC will free [v_uring].
+      unix_error(-status, "io_uring_register_iowq_max_workers", Nothing);
+    }
+
   } else {
     caml_stat_free(ring);
     // The GC will free [v_uring].

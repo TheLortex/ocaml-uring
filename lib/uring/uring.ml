@@ -154,7 +154,7 @@ type 'a job = 'a Heap.entry
 module Uring = struct
   type t
 
-  external create : int -> int option -> t = "ocaml_uring_setup"
+  external create : int -> int option -> int -> int -> t = "ocaml_uring_setup"
   external exit : t -> unit = "ocaml_uring_exit"
 
   external unregister_buffers : t -> unit = "ocaml_uring_unregister_buffers"
@@ -235,9 +235,9 @@ let register_gc_root t =
 let unregister_gc_root t =
   update_gc_roots (Ring_set.remove (Generic_ring.T t))
 
-let create ?polling_timeout ~queue_depth () =
+let create ?polling_timeout ?(max_bounded_workers = 0) ?(max_unbounded_workers = 0) ~queue_depth () =
   if queue_depth < 1 then Fmt.invalid_arg "Non-positive queue depth: %d" queue_depth;
-  let uring = Uring.create queue_depth polling_timeout in
+  let uring = Uring.create queue_depth polling_timeout max_bounded_workers max_unbounded_workers in
   let data = Heap.create queue_depth in
   let id = object end in
   let fixed_iobuf = Cstruct.empty.buffer in
