@@ -57,6 +57,10 @@ val set_fixed_buffer : 'a t -> Cstruct.buffer -> (unit, [> `ENOMEM]) result
 
     @raise Invalid_argument if there are any requests in progress *)
 
+val register_files : 'a t -> Unix.file_descr array -> unit
+
+val unregister_files : 'a t -> unit
+
 val buf : 'a t -> Cstruct.buffer
 (** [buf t] is the fixed internal memory buffer associated with uring [t]
     using {!set_fixed_buffer}, or a zero-length buffer if none is set. *)
@@ -116,6 +120,8 @@ module Resolve : sig
   val cached : t
 end
 
+
+
 val openat2 : 'a t ->
   access:[`R|`W|`RW] ->
   flags:Open_flags.t ->
@@ -155,13 +161,13 @@ val readv : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> '
     the results into the memory pointed to by [iov].  The user data [d] will
     be returned by {!wait} or {!peek} upon completion. *)
 
-val writev : 'a t -> file_offset:offset -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
+val writev : 'a t -> file_offset:offset -> ?fixed:bool -> Unix.file_descr -> Cstruct.t list -> 'a -> 'a job option
 (** [writev t ~file_offset fd iov d] will submit a [writev(2)] request to uring [t].
     It writes to absolute [file_offset] on the [fd] file descriptor from the
     the memory pointed to by [iov].  The user data [d] will be returned by
     {!wait} or {!peek} upon completion. *)
 
-val read_fixed : 'a t -> file_offset:offset -> Unix.file_descr -> off:int -> len:int -> 'a -> 'a job option
+val read_fixed : 'a t -> file_offset:offset -> Unix.file_descr -> off:int -> len:int -> ?fixed:bool -> 'a -> 'a job option
 (** [read t ~file_offset fd ~off ~len d] will submit a [read(2)] request to uring [t].
     It reads up to [len] bytes from absolute [file_offset] on the [fd] file descriptor and
     writes the results into the fixed memory buffer associated with uring [t] at offset [off].
@@ -171,7 +177,7 @@ val read_chunk : ?len:int -> 'a t -> file_offset:offset -> Unix.file_descr -> Re
 (** [read_chunk] is like [read_fixed], but gets the offset from [chunk].
     @param len Restrict the read to the first [len] bytes of [chunk]. *)
 
-val write_fixed : 'a t -> file_offset:offset -> Unix.file_descr -> off:int -> len:int -> 'a -> 'a job option
+val write_fixed : 'a t -> file_offset:offset -> Unix.file_descr -> off:int -> len:int -> ?fixed:bool -> 'a -> 'a job option
 (** [write t ~file_offset fd off d] will submit a [write(2)] request to uring [t].
     It writes up to [len] bytes into absolute [file_offset] on the [fd] file descriptor
     from the fixed memory buffer associated with uring [t] at offset [off].

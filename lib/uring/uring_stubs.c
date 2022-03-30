@@ -115,6 +115,35 @@ value ocaml_uring_unregister_buffers(value v_uring) {
   CAMLreturn(Val_unit);
 }
 
+value ocaml_uring_register_files(value v_uring, value v_file_descriptors) {
+  CAMLparam2(v_uring, v_file_descriptors);
+  struct io_uring *ring = Ring_val(v_uring);
+  int len = Wosize_val(v_file_descriptors);
+
+  value file_descriptors_c = caml_alloc(len, Abstract_tag);
+
+  for(int i = 0; i < len; i++) {
+    Field(file_descriptors_c, i) = Int_val(Field(v_file_descriptors, i));
+  }
+
+  int ret = io_uring_register_files(ring, ((int*) file_descriptors_c), 1);
+  if (ret)
+    unix_error(-ret, "io_uring_register_files", Nothing);
+  
+  CAMLreturn(Val_unit);
+}
+
+value ocaml_uring_unregister_files(value v_uring) {
+  CAMLparam1(v_uring);
+  struct io_uring *ring = Ring_val(v_uring);
+
+  int ret = io_uring_unregister_files(ring);
+  if (ret)
+    unix_error(-ret, "io_uring_unregister_files", Nothing);
+  
+  CAMLreturn(Val_unit);
+}
+
 #define Iovec_val(v) (*((struct iovec **) Data_custom_val(v)))
 
 static void finalize_iovec(value v) {
@@ -267,7 +296,7 @@ ocaml_uring_submit_poll_add(value v_uring, value v_fd, value v_id, value v_poll_
 
 // Caller must ensure v_iov is not GC'd until the job is finished.
 value
-ocaml_uring_submit_readv(value v_uring, value v_fd, value v_id, value v_iov, value v_off) {
+ocaml_uring_submit_readv_native(value v_uring, value v_fd, value v_id, value v_iov, value v_off, value v_fixed) {
   CAMLparam2(v_uring, v_iov);
   struct io_uring *ring = Ring_val(v_uring);
   struct iovec *iovs = Iovec_val(Field(v_iov, 0));
@@ -277,27 +306,32 @@ ocaml_uring_submit_readv(value v_uring, value v_fd, value v_id, value v_iov, val
   dprintf("submit_readv: %d ents len[0] %lu off %d\n", len, iovs[0].iov_len, Int63_val(v_off));
   io_uring_prep_readv(sqe, Int_val(v_fd), iovs, len, Int63_val(v_off));
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  if (Bool_val(v_fixed) == 1) {
+    sqe->flags |= IOSQE_FIXED_FILE;
+  }
   CAMLreturn(Val_true);
 }
 
 // Caller must ensure v_iov is not GC'd until the job is finished.
 value
-ocaml_uring_submit_writev(value v_uring, value v_fd, value v_id, value v_iov, value v_off) {
+ocaml_uring_submit_writev_native(value v_uring, value v_fd, value v_id, value v_iov, value v_off, value v_fixed) {
   CAMLparam2(v_uring, v_iov);
   struct io_uring *ring = Ring_val(v_uring);
   struct iovec *iovs = Iovec_val(Field(v_iov, 0));
   int len = Int_val(Field(v_iov, 1));
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   if (!sqe) CAMLreturn(Val_false);
-  dprintf("submit_writev: %d ents len[0] %lu off %d\n", len, iovs[0].iov_len, Int63_val(v_off));
   io_uring_prep_writev(sqe, Int_val(v_fd), iovs, len, Int63_val(v_off));
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  if (Bool_val(v_fixed) == 1) {
+    sqe->flags |= IOSQE_FIXED_FILE;
+  }
   CAMLreturn(Val_true);
 }
 
 // Caller must ensure the buffers are not released until this job completes.
 value
-ocaml_uring_submit_readv_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff) {
+ocaml_uring_submit_readv_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff, value v_fixed) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
@@ -305,6 +339,9 @@ ocaml_uring_submit_readv_fixed_native(value v_uring, value v_fd, value v_id, val
   dprintf("submit_readv_fixed: buf %p off %d len %d fileoff %d", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
   io_uring_prep_read_fixed(sqe, Int_val(v_fd), buf, Int_val(v_len), Int63_val(v_fileoff), 0);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  if (Bool_val(v_fixed) == 1) {
+    sqe->flags |= IOSQE_FIXED_FILE;
+  }
   return Val_true;
 }
 
@@ -317,12 +354,13 @@ ocaml_uring_submit_readv_fixed_byte(value* values, int argc) {
 			  values[3],
 			  values[4],
 			  values[5],
-			  values[6]);
+			  values[6],
+        values[7]);
 }
 
 // Caller must ensure the buffers are not released until this job completes.
 value
-ocaml_uring_submit_writev_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff) {
+ocaml_uring_submit_writev_fixed_native(value v_uring, value v_fd, value v_id, value v_ba, value v_off, value v_len, value v_fileoff, value v_fixed) {
   struct io_uring *ring = Ring_val(v_uring);
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
   void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
@@ -331,6 +369,9 @@ ocaml_uring_submit_writev_fixed_native(value v_uring, value v_fd, value v_id, va
   dprintf("submit_writev_fixed: buf %p off %d len %d fileoff %d", buf, Int_val(v_off), Int_val(v_len), Int63_val(v_fileoff));
   io_uring_prep_write_fixed(sqe, Int_val(v_fd), buf, Int_val(v_len), Int63_val(v_fileoff), 0);
   io_uring_sqe_set_data(sqe, (void *)Long_val(v_id));
+  if (Bool_val(v_fixed) == 1) {
+    sqe->flags |= IOSQE_FIXED_FILE;
+  }
   return Val_true;
 }
 
@@ -343,7 +384,8 @@ ocaml_uring_submit_writev_fixed_byte(value* values, int argc) {
 			  values[3],
 			  values[4],
 			  values[5],
-			  values[6]);
+			  values[6],
+        values[7]);
 }
 
 value

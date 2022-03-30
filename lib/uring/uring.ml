@@ -166,10 +166,10 @@ module Uring = struct
   type offset = Optint.Int63.t
   external submit_nop : t -> id -> bool = "ocaml_uring_submit_nop" [@@noalloc]
   external submit_poll_add : t -> Unix.file_descr -> id -> Poll_mask.t -> bool = "ocaml_uring_submit_poll_add" [@@noalloc]
-  external submit_readv : t -> Unix.file_descr -> id -> Iovec.t -> offset -> bool = "ocaml_uring_submit_readv" [@@noalloc]
-  external submit_writev : t -> Unix.file_descr -> id -> Iovec.t -> offset -> bool = "ocaml_uring_submit_writev" [@@noalloc]
-  external submit_readv_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
-  external submit_writev_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
+  external submit_readv : t -> Unix.file_descr -> id -> Iovec.t -> offset -> bool -> bool = "ocaml_uring_submit_readv_byte" "ocaml_uring_submit_readv_native" [@@noalloc]
+  external submit_writev : t -> Unix.file_descr -> id -> Iovec.t -> offset -> bool -> bool = "ocaml_uring_submit_writev_byte" "ocaml_uring_submit_writev_native" [@@noalloc]
+  external submit_readv_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> bool -> bool = "ocaml_uring_submit_readv_fixed_byte" "ocaml_uring_submit_readv_fixed_native" [@@noalloc]
+  external submit_writev_fixed : t -> Unix.file_descr -> id -> Cstruct.buffer -> int -> int -> offset -> bool -> bool = "ocaml_uring_submit_writev_fixed_byte" "ocaml_uring_submit_writev_fixed_native" [@@noalloc]
   external submit_close : t -> Unix.file_descr -> id -> bool = "ocaml_uring_submit_close" [@@noalloc]
   external submit_splice : t -> id -> Unix.file_descr -> Unix.file_descr -> int -> bool = "ocaml_uring_submit_splice" [@@noalloc]
   external submit_connect : t -> id -> Unix.file_descr -> Sockaddr.t -> bool = "ocaml_uring_submit_connect" [@@noalloc]
@@ -261,6 +261,13 @@ let set_fixed_buffer t iobuf =
     | exception Unix.Unix_error(Unix.ENOMEM, "io_uring_register_buffers", "") -> Error `ENOMEM
   ) else Ok ()
 
+external register_files : Uring.t -> Unix.file_descr array -> unit = "ocaml_uring_register_files"
+external unregister_files : Uring.t -> unit = "ocaml_uring_unregister_files"
+
+let register_files t = register_files t.uring
+
+let unregister_files t = unregister_files t.uring
+
 let exit t =
   ensure_idle t "exit";
   Uring.exit t.uring;
@@ -299,27 +306,27 @@ let openat2 t ~access ~flags ~perm ~resolve ?(fd=at_fdcwd) path user_data =
 
 let readv t ~file_offset fd buffers user_data =
   let iovec = Iovec.make buffers in
-  with_id_full t (fun id -> Uring.submit_readv t.uring fd id iovec file_offset) user_data ~extra_data:iovec
+  with_id_full t (fun id -> Uring.submit_readv t.uring fd id iovec file_offset false) user_data ~extra_data:iovec
 
-let read_fixed t ~file_offset fd ~off ~len user_data =
-  with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
+let read_fixed t ~file_offset fd ~off ~len ?(fixed=false) user_data =
+  with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset fixed) user_data
 
 let read_chunk ?len t ~file_offset fd chunk user_data =
   let { Cstruct.buffer; off; len } = Region.to_cstruct ?len chunk in
   if buffer != t.fixed_iobuf then invalid_arg "Chunk does not belong to ring!";
-  with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
+  with_id t (fun id -> Uring.submit_readv_fixed t.uring fd id t.fixed_iobuf off len file_offset false) user_data
 
-let write_fixed t ~file_offset fd ~off ~len user_data =
-  with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
+let write_fixed t ~file_offset fd ~off ~len ?(fixed=false) user_data =
+  with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset fixed) user_data
 
 let write_chunk ?len t ~file_offset fd chunk user_data =
   let { Cstruct.buffer; off; len } = Region.to_cstruct ?len chunk in
   if buffer != t.fixed_iobuf then invalid_arg "Chunk does not belong to ring!";
-  with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset) user_data
+  with_id t (fun id -> Uring.submit_writev_fixed t.uring fd id t.fixed_iobuf off len file_offset false) user_data
 
-let writev t ~file_offset fd buffers user_data =
+let writev t ~file_offset ?(fixed=false) fd buffers user_data =
   let iovec = Iovec.make buffers in
-  with_id_full t (fun id -> Uring.submit_writev t.uring fd id iovec file_offset) user_data ~extra_data:iovec
+  with_id_full t (fun id -> Uring.submit_writev t.uring fd id iovec file_offset fixed) user_data ~extra_data:iovec
 
 let poll_add t fd poll_mask user_data =
   with_id t (fun id -> Uring.submit_poll_add t.uring fd id poll_mask) user_data
