@@ -323,6 +323,17 @@ ocaml_uring_submit_readv_native(value v_uring, value v_fd, value v_id, value v_i
   CAMLreturn(Val_true);
 }
 
+value
+ocaml_uring_submit_readv_byte(value* values, int argc) {
+  return ocaml_uring_submit_readv_native(
+			  values[0],
+			  values[1],
+			  values[2],
+			  values[3],
+			  values[4],
+			  values[5]);
+}
+
 // Caller must ensure v_iov is not GC'd until the job is finished.
 value
 ocaml_uring_submit_writev_native(value v_uring, value v_fd, value v_id, value v_iov, value v_off, value v_fixed) {
@@ -338,6 +349,17 @@ ocaml_uring_submit_writev_native(value v_uring, value v_fd, value v_id, value v_
     sqe->flags |= IOSQE_FIXED_FILE;
   }
   CAMLreturn(Val_true);
+}
+
+value
+ocaml_uring_submit_writev_byte(value* values, int argc) {
+  return ocaml_uring_submit_writev_native(
+			  values[0],
+			  values[1],
+			  values[2],
+			  values[3],
+			  values[4],
+			  values[5]);
 }
 
 // Caller must ensure the buffers are not released until this job completes.
